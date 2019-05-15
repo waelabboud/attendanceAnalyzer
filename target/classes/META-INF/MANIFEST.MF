@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Built-By: Wael
+Class-Path: lib/httpclient-4.5.8.jar lib/httpcore-4.4.11.jar lib/commo
+ ns-logging-1.2.jar lib/commons-codec-1.11.jar lib/poi-4.1.0.jar lib/c
+ ommons-collections4-4.3.jar lib/commons-math3-3.6.1.jar lib/poi-ooxml
+ -4.1.0.jar lib/poi-ooxml-schemas-4.1.0.jar lib/xmlbeans-3.1.0.jar lib
+ /curvesapi-1.06.jar lib/commons-compress-1.17.jar
+Build-Jdk: 1.8.0_201
+Created-By: Maven Integration for Eclipse
+Main-Class: com.attendance.analyzer.attendanceAnalyzer.AttendanceAnaly
+ zer
+
