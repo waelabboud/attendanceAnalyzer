@@ -80,7 +80,7 @@ public class AttendanceAnalyzer {
 			startMonth = new SimpleDateFormat("MM").format(Calendar.getInstance().getTime());
 			startYear = new SimpleDateFormat("yy").format(Calendar.getInstance().getTime());
 			endMonth = startMonth;
-			endDay = "19";// new SimpleDateFormat("dd").format(yesterday);
+			endDay = new SimpleDateFormat("dd").format(yesterday);
 			;
 			endYear = startYear;
 		} else {
