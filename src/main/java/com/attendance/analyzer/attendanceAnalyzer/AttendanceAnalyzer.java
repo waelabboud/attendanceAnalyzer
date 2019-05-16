@@ -1,48 +1,51 @@
 package com.attendance.analyzer.attendanceAnalyzer;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
-import java.util.IllegalFormatException;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.TreeMap;
 
 import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.poi.EncryptedDocumentException;
-import org.apache.poi.hssf.usermodel.HSSFFormulaEvaluator;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.impl.client.HttpClientBuilder;
 
 import com.attendance.analyzer.excel.ExcelExtractor;
 import com.attendance.analyzer.util.DateUtils;
 
 public class AttendanceAnalyzer {
 
-	private static DecimalFormat df2 = new DecimalFormat("#.##");
+	private final String USER_AGENT = "Mozilla/5.0";
 
-	private final String USER_AGENT = "Mozilla/5.0"; 
 	public static void main(String[] args) throws Exception {
-
 		AttendanceAnalyzer analyzer = new AttendanceAnalyzer();
-
 		analyzer.analyze(args);
+	}
 
+	private void analyze(String[] args) throws Exception {
+
+		AttendanceInterval ai = extractInterval(args);
+		String url = constructURL(ai);
+
+		System.out.println("started analyzing timestamps...");
+
+		InputStream response = getHTTPResponse(url);
+
+		Map<String, ArrayList<String>> attendancePerDay = readAttendance(response);
+		Map<String, Double> hoursPerDay = analyzeAttendancePerDay(attendancePerDay);
+
+		String reportLocation = new ExcelExtractor().writeToExcel(hoursPerDay, ai.userId);
+		System.out.println("Done.");
+		System.out.println("An Excel report is generated here:" + reportLocation);
 	}
 
 	private String constructURL(AttendanceInterval ai) {
@@ -54,7 +57,6 @@ public class AttendanceAnalyzer {
 				.concat("&end_date=").concat(ai.getEndDay()).concat("&end_year=").concat(ai.getEndYear())
 				.concat("&sel_all=1&Export=EXPORT");
 		return url;
-
 	}
 
 	private AttendanceInterval extractInterval(String[] args) {
@@ -67,10 +69,9 @@ public class AttendanceAnalyzer {
 		String endDay = null;
 		String endYear = null;
 
-		if(startMonth == null) {
+		if (startMonth == null) {
 			printUsage();
-		}
-		else if (startMonth.equals("currentMonth")) {
+		} else if (startMonth.equals("currentMonth")) {
 
 			Calendar cal = Calendar.getInstance();
 			cal.add(Calendar.DATE, -1); // calculate up to yesterday
@@ -98,9 +99,8 @@ public class AttendanceAnalyzer {
 
 		return ai;
 	}
-	
-	private void printUsage()
-	{
+
+	private void printUsage() {
 		System.out.println("Incorrect arguments entered");
 		System.out.println("Usage: Analyzer id currentMonth");
 		System.out.println("Example: Analyzer 99 currentMonth");
@@ -108,39 +108,29 @@ public class AttendanceAnalyzer {
 		System.out.println("Example: Analyzer 99 5 1 19 5 6 19");
 	}
 
-	// HTTP GET request
-	private void analyze(String[] args) throws Exception { 
-
-		AttendanceInterval ai = extractInterval(args);
-		String url = constructURL(ai);
-
-		System.out.println("started analyzing timestamps...");
-		HttpClient client = new DefaultHttpClient();
-		HttpGet request = new HttpGet(url);
+	private InputStream getHTTPResponse(String url) throws ClientProtocolException, IOException {
+		HttpClient client = HttpClientBuilder.create().build();
+		HttpUriRequest request = new HttpGet(url);
 
 		// add request header
 		request.addHeader("User-Agent", USER_AGENT);
+
 		HttpResponse response = client.execute(request);
-
-		Map<String, ArrayList<String>> attendancePerDay = readAttendance(response);
-		Map<String, Double> hoursPerDay = analyzeAttendancePerDay(attendancePerDay);
-
-		String reportLocation = new ExcelExtractor().writeToExcel(hoursPerDay, ai.userId);
-		System.out.println("Done.");
-		System.out.println("An Excel report is generated here:" + reportLocation);
+		System.out.println("Response:" + response);
+		return response.getEntity().getContent();
 	}
 
 	/**
 	 * Extracts the attendance info from the http response.
+	 * 
 	 * @param response the http response
 	 * @return a tree map of total worked hours / day in reverse order
 	 * @throws IOException
 	 */
-	private Map<String, ArrayList<String>> readAttendance(HttpResponse response) throws IOException {
+	private Map<String, ArrayList<String>> readAttendance(InputStream inputStream) throws IOException {
 		TreeMap<String, ArrayList<String>> attendancePerDay = new TreeMap<>(Collections.reverseOrder());
 
-		// HttpResponse response = client.execute(request);
-		BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
+		BufferedReader rd = new BufferedReader(new InputStreamReader(inputStream));
 
 		StringBuffer result = new StringBuffer();
 		String line = "";
@@ -158,14 +148,13 @@ public class AttendanceAnalyzer {
 				timeStamps = attendancePerDay.get(day);
 			}
 			timeStamps.add(timeStamp);
-			attendancePerDay.put(day, timeStamps);			
+			attendancePerDay.put(day, timeStamps);
 		}
-		
-		return  attendancePerDay;
+
+		return attendancePerDay;
 	}
-	
-	private Map<String, Double> analyzeAttendancePerDay(
-			Map<String, ArrayList<String>> attendancePerDay) {
+
+	private Map<String, Double> analyzeAttendancePerDay(Map<String, ArrayList<String>> attendancePerDay) {
 
 		TreeMap<String, Double> hoursPerDay = new TreeMap<>();
 		attendancePerDay.forEach((k, v) -> {
@@ -177,7 +166,6 @@ public class AttendanceAnalyzer {
 				for (int i = 1; i < v.size(); i = i + 2) {
 					Double duration = DateUtils.calculateDuration(v.get(i), v.get(i - 1));
 					totalDurationPerDay = totalDurationPerDay + duration;
-
 				}
 			} else {
 				// odd - use first timestamp as IN and last timestamp as OUT - ignore all
@@ -191,9 +179,9 @@ public class AttendanceAnalyzer {
 
 		return hoursPerDay;
 	}
-  
+
 	private double round(double d) {
 		return Math.round(d * 100) / 100.0;
 	}
-  
+
 }
