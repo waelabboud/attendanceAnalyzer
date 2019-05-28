@@ -4,7 +4,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -12,6 +11,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
@@ -26,6 +26,7 @@ import com.attendance.analyzer.util.DateUtils;
 public class AttendanceAnalyzer {
 
 	private final String USER_AGENT = "Mozilla/5.0";
+	private boolean isDiagnose = false;
 
 	public static void main(String[] args) throws Exception {
 		AttendanceAnalyzer analyzer = new AttendanceAnalyzer();
@@ -34,19 +35,33 @@ public class AttendanceAnalyzer {
 
 	private void analyze(String[] args) throws Exception {
 
+		System.out.println("started analyzing timestamps...");
+		
 		AttendanceInterval ai = extractInterval(args);
 		String url = constructURL(ai);
 
-		System.out.println("started analyzing timestamps...");
+		
 
 		InputStream response = getHTTPResponse(url);
 
 		Map<String, ArrayList<String>> attendancePerDay = readAttendance(response);
-		Map<String, Double> hoursPerDay = analyzeAttendancePerDay(attendancePerDay);
 
-		String reportLocation = new ExcelExtractor().writeToExcel(hoursPerDay, ai.userId);
+		if (isDiagnose) {
+			// just output the attendance per day map and exit
+			printAttendancePerDay(attendancePerDay);
+		} else {
+
+			Map<String, Double> hoursPerDay = analyzeAttendancePerDay(attendancePerDay);
+
+			String reportLocation = new ExcelExtractor().writeToExcel(hoursPerDay, ai.userId);
+
+			System.out.println("An Excel report is generated here:" + reportLocation);
+		}
 		System.out.println("Done.");
-		System.out.println("An Excel report is generated here:" + reportLocation);
+	}
+
+	private void printAttendancePerDay(Map<String, ArrayList<String>> attendancePerDay) {
+	   attendancePerDay.forEach((k,v)->System.out.println("Day : " + k + " Entries : " + v)); 
 	}
 
 	private String constructURL(AttendanceInterval ai) {
@@ -61,6 +76,13 @@ public class AttendanceAnalyzer {
 	}
 
 	private AttendanceInterval extractInterval(String[] args) {
+
+		isDiagnose = false; // reset
+		
+		if(null == args  || args.length == 0 ) {
+			printUsage();
+			System.exit(0);
+		}
 
 		String userId = args[0];
 		String startMonth = args[1];
@@ -91,6 +113,11 @@ public class AttendanceAnalyzer {
 			endMonth = args[4];
 			endDay = args[5];
 			endYear = args[6];
+
+			
+			if ( args.length > 6 && args[7].equals("-diagnose")) {
+				isDiagnose = true;
+			}
 		}
 
 		// 99 5 1 19 5 6 19
@@ -107,6 +134,8 @@ public class AttendanceAnalyzer {
 		System.out.println("Example: Analyzer 99 currentMonth");
 		System.out.println("Or: Analyzer id startMonth startDay startYear endMonth endDay endYear");
 		System.out.println("Example: Analyzer 99 5 1 19 5 6 19");
+		System.out.println("Note: you can also show all entries for a specific time interval by adding -diagnose");
+		System.out.println("For example: Analyzer 99 5 1 19 5 30 19 -diagnose");
 	}
 
 	private InputStream getHTTPResponse(String url) throws ClientProtocolException, IOException {
@@ -129,32 +158,25 @@ public class AttendanceAnalyzer {
 	 * @throws IOException
 	 */
 	private Map<String, ArrayList<String>> readAttendance(InputStream inputStream) {
+
 		TreeMap<String, ArrayList<String>> attendancePerDay = new TreeMap<>(Collections.reverseOrder());
 
-		try (BufferedReader br = new BufferedReader(new InputStreamReader(inputStream))) {
-			
-			//br returns as stream and convert it into a List
-		//	list = br.lines().collect(Collectors.toList());
+		Stream<String> lines = new BufferedReader(new InputStreamReader(inputStream)).lines();
 
-			String line = "";
-			while ((line = br.readLine()) != null) {
-
-				String[] record = line.split(",");
-				String day = record[4];
-				String timeStamp = record[5];
-				ArrayList<String> timeStamps = null;
-				if (!attendancePerDay.containsKey(day)) {
-					// new day recorded
-					timeStamps = new ArrayList<>();
-				} else {
-					timeStamps = attendancePerDay.get(day);
-				}
-				timeStamps.add(timeStamp);
-				attendancePerDay.put(day, timeStamps);
+		lines.forEach(line -> {
+			String[] record = line.split(",");
+			String day = record[4];
+			String timeStamp = record[5];
+			ArrayList<String> timeStamps = null;
+			if (!attendancePerDay.containsKey(day)) {
+				// new day recorded
+				timeStamps = new ArrayList<>();
+			} else {
+				timeStamps = attendancePerDay.get(day);
 			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+			timeStamps.add(timeStamp);
+			attendancePerDay.put(day, timeStamps);
+		});
 
 		return attendancePerDay;
 	}
@@ -175,7 +197,7 @@ public class AttendanceAnalyzer {
 			} else {
 				// odd - use first timestamp as IN and last timestamp as OUT - ignore all
 				// timestamps in between
-				totalDurationPerDay = DateUtils.calculateDuration(v.get(0), v.get(v.size() - 1));
+				totalDurationPerDay = DateUtils.calculateDuration(v.get(v.size() - 1), v.get(0));
 			}
 
 			hoursPerDay.put(k, round(totalDurationPerDay));
